@@ -478,14 +478,15 @@ if __name__ == "__main__":
         container = self.docker_client.containers.create(**container_config)
 
         try:
-            container.start()
-            logger.debug(f"Container started: {container.id[:12]}")
-
-            # 附加到容器的 stdin/stdout
             socket = container.attach_socket(
                 params={"stdin": True, "stdout": True, "stderr": True, "stream": True}
             )
             socket._sock.setblocking(True)
+            logger.debug(f"Socket attached to container: {container.id[:12]}")
+
+            # Now start the container - socket will receive all output from the start
+            container.start()
+            logger.debug(f"Container started: {container.id[:12]}")
 
             # 等待就绪信号
             ready = await self._wait_for_ready(socket, timeout=10.0)
