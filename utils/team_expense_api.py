@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 
 # Configuration
+RANDOM_SEED = 42  # Set to None for non-deterministic results, or any integer for reproducibility
 EXPENSE_LINE_ITEMS_PER_PERSON_MIN = 20
 EXPENSE_LINE_ITEMS_PER_PERSON_MAX = 50
 DELAY_MULTIPLIER = 0  # Adjust this to simulate API latency
@@ -248,7 +249,11 @@ def get_expenses(employee_id: str, quarter: str) -> str:
     time.sleep(DELAY_MULTIPLIER * 0.2)
 
     # Generate a deterministic but varied number of expenses based on employee_id
-    random.seed(hash(employee_id + quarter))
+    # Combine global RANDOM_SEED with employee_id and quarter for reproducibility
+    if RANDOM_SEED is not None:
+        random.seed(RANDOM_SEED + hash(employee_id + quarter))
+    else:
+        random.seed(hash(employee_id + quarter))
     num_expenses = random.randint(
         EXPENSE_LINE_ITEMS_PER_PERSON_MIN, EXPENSE_LINE_ITEMS_PER_PERSON_MAX
     )

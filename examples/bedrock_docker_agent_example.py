@@ -479,12 +479,17 @@ for server in servers:
 
     def _create_execute_code_tool(self) -> dict:
         """Create the execute_code tool definition"""
+                # Build tool documentation
+        tools_doc = self.tool_registry.generate_tools_documentation()
         return {
             "name": "execute_code",
-            "description": """Execute Python code in a sandbox environment.
+            "description": f"""Execute Python code in a sandbox environment.
 
 The code can call predefined asynchronous tool functions to complete tasks.
 Use `print()` to output the results you need to see.
+
+The code can call the following async tool functions:
+{tools_doc}
 
 Applicable Scenarios:
 - Need to call tools multiple times (e.g., loop iterations)
