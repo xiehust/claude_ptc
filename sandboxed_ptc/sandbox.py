@@ -213,9 +213,11 @@ READY_SIGNAL = "__READY__"
 # 工具定义
 TOOLS_INFO = {tools_info}
 
-# 工具调用结果缓存
+# 工具调用结果缓存 - 用于并行工具调用的结果分发
 _pending_results: dict[str, asyncio.Future] = {{}}
 _result_lock = asyncio.Lock()
+_stdin_lock = __import__('threading').Lock()
+_result_cache: dict[str, dict] = {{}}  # 缓存尚未被认领的结果
 
 # 持久化执行环境（用于状态保持）
 _persistent_globals: dict = {{}}
@@ -236,24 +238,49 @@ def _send_tool_call(tool_name: str, arguments: dict) -> str:
 
 
 def _receive_tool_result(call_id: str, timeout: float = 30.0) -> Any:
-    """从主进程接收工具调用结果"""
-    # 从 stdin 读取结果
+    """从主进程接收工具调用结果 - 支持并行调用"""
+    import time
+    start_time = time.time()
+
     while True:
-        line = sys.stdin.readline()
-        if not line:
-            raise RuntimeError(f"EOF while waiting for tool result: {{call_id}}")
+        # 检查超时
+        if time.time() - start_time > timeout:
+            raise RuntimeError(f"Timeout waiting for tool result: {{call_id}}")
 
-        line = line.strip()
-        if IPC_TOOL_RESULT_START in line and IPC_TOOL_RESULT_END in line:
-            start = line.find(IPC_TOOL_RESULT_START) + len(IPC_TOOL_RESULT_START)
-            end = line.find(IPC_TOOL_RESULT_END)
-            result_json = line[start:end]
-            result = json.loads(result_json)
-
-            if result.get("call_id") == call_id:
+        # 先检查缓存中是否已有该 call_id 的结果
+        with _stdin_lock:
+            if call_id in _result_cache:
+                result = _result_cache.pop(call_id)
                 if result.get("error"):
                     raise RuntimeError(f"Tool error: {{result['error']}}")
                 return result.get("result")
+
+            # 尝试从 stdin 读取一行（非阻塞方式）
+            import select
+            readable, _, _ = select.select([sys.stdin], [], [], 0.01)
+            if not readable:
+                continue
+
+            line = sys.stdin.readline()
+            if not line:
+                raise RuntimeError(f"EOF while waiting for tool result: {{call_id}}")
+
+            line = line.strip()
+            if IPC_TOOL_RESULT_START in line and IPC_TOOL_RESULT_END in line:
+                start = line.find(IPC_TOOL_RESULT_START) + len(IPC_TOOL_RESULT_START)
+                end = line.find(IPC_TOOL_RESULT_END)
+                result_json = line[start:end]
+                result = json.loads(result_json)
+
+                received_call_id = result.get("call_id")
+                if received_call_id == call_id:
+                    # 这是我们等待的结果
+                    if result.get("error"):
+                        raise RuntimeError(f"Tool error: {{result['error']}}")
+                    return result.get("result")
+                else:
+                    # 不是我们的结果，缓存起来给其他等待者
+                    _result_cache[received_call_id] = result
 
 
 def _create_tool_function(tool_name: str):

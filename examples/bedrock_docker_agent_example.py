@@ -406,7 +406,25 @@ When you need to execute multi-step tasks, use the `execute_code` tool to write 
 
 ## Best Practices for coding
 
-1. **Batch Processing**: Write multiple related operations in a single code block
+1. **Parallel Execution (Recommended)**: When calling the same tool for multiple independent items, use `asyncio.gather()` for parallel execution instead of sequential loops
+```python
+import asyncio
+
+# Fetch expenses for all employees in parallel (recommended)
+employee_ids = ["ENG001", "ENG002", "ENG003"]
+expense_tasks = [
+    get_expenses(employee_id=emp_id, quarter="Q3")
+    for emp_id in employee_ids
+]
+expenses_results = await asyncio.gather(*expense_tasks)
+
+# Process results
+for emp_id, expenses_json in zip(employee_ids, expenses_results):
+    expenses = json.loads(expenses_json)
+    print(f"{{emp_id}}: {{len(expenses)}} expenses")
+```
+
+2. **Batch Processing**: Write multiple related operations in a single code block
 ```python
 results = {{}}
 for region in ["East", "West", "Central"]:
@@ -415,7 +433,7 @@ for region in ["East", "West", "Central"]:
 print(f"Regional revenue: {{results}}")
 ```
 
-2. **Data Filtering**: Fetch data first, then filter in code
+3. **Data Filtering**: Fetch data first, then filter in code
 ```python
 servers = await list_servers()
 for server in servers:
@@ -424,7 +442,7 @@ for server in servers:
         print(f"Problem: {{server}} - {{status}}")
 ```
 
-3. **Conditional Logic**: Decide next steps based on intermediate results
+4. **Conditional Logic**: Decide next steps based on intermediate results
 ```python
 file_info = await get_file_info(path="/data/large.csv")
 if file_info["size"] > 1000000:
@@ -435,7 +453,7 @@ else:
 print(summary)
 ```
 
-4. **Early Termination**: Stop immediately once the desired result is found
+5. **Early Termination**: Stop immediately once the desired result is found
 ```python
 servers = ["us-east", "eu-west", "ap-south"]
 for server in servers:

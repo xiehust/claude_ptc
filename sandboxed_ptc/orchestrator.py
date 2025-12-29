@@ -120,7 +120,25 @@ class ProgrammaticToolOrchestrator:
 
 ## 最佳实践
 
-1. **批量处理**：将多个相关操作写在一段代码中
+1. **并行执行（推荐）**：当需要对多个独立项目调用同一工具时，使用 `asyncio.gather()` 并行执行，而不是顺序循环
+```python
+import asyncio
+
+# 并行获取所有员工的费用数据（推荐）
+employee_ids = ["ENG001", "ENG002", "ENG003"]
+expense_tasks = [
+    get_expenses(employee_id=emp_id, quarter="Q3")
+    for emp_id in employee_ids
+]
+expenses_results = await asyncio.gather(*expense_tasks)
+
+# 处理结果
+for emp_id, expenses_json in zip(employee_ids, expenses_results):
+    expenses = json.loads(expenses_json)
+    print(f"{{emp_id}}: {{len(expenses)}} expenses")
+```
+
+2. **批量处理**：将多个相关操作写在一段代码中
 ```python
 results = {{}}
 for region in ["East", "West", "Central"]:
@@ -129,7 +147,7 @@ for region in ["East", "West", "Central"]:
 print(f"Regional revenue: {{results}}")
 ```
 
-2. **数据过滤**：先获取数据，在代码中过滤
+3. **数据过滤**：先获取数据，在代码中过滤
 ```python
 all_logs = await fetch_logs(server_id="main")
 errors = [log for log in all_logs if "ERROR" in log]
@@ -138,7 +156,7 @@ for err in errors[-5:]:  # 只显示最后 5 条
     print(err)
 ```
 
-3. **条件逻辑**：根据中间结果决定下一步
+4. **条件逻辑**：根据中间结果决定下一步
 ```python
 file_info = await get_file_info(path="/data/large.csv")
 if file_info["size"] > 1000000:
@@ -149,7 +167,7 @@ else:
 print(summary)
 ```
 
-4. **提前终止**：找到所需结果后立即停止
+5. **提前终止**：找到所需结果后立即停止
 ```python
 servers = ["us-east", "eu-west", "ap-south"]
 for server in servers:
