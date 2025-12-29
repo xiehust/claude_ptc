@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is **Sandboxed Programmatic Tool Calling (PTC)** - a self-hosted implementation of Anthropic's Programmatic Tool Calling mechanism using Docker containers for secure code execution. It enables Claude to generate Python code that calls tools dynamically, with all code executing in isolated Docker sandboxes.
+This is **Sandboxed Programmatic Tool Calling (PTC)** - a self-hosted implementation of Anthropic's Programmatic Tool Calling mechanism. It enables Claude to generate Python code that calls tools dynamically, with code executing in either:
+- **Docker containers** (secure, isolated) - for production with untrusted code
+- **Local Python process** (fast, no Docker) - for development/testing
 
 Key value: Instead of N model round-trips for N tool calls, Claude generates code that executes all tools in one sandbox session, returning only the final `print()` output to context.
 
@@ -14,21 +16,19 @@ Key value: Instead of N model round-trips for N tool calls, Claude generates cod
 # Install dependencies
 pip install -r requirements.txt
 
-# Ensure Docker is running (required for sandbox execution)
-docker info
-
-# Run the main example (requires AWS credentials for Bedrock)
+# Run with Docker sandbox (requires Docker)
+docker info  # Ensure Docker is running
 python examples/bedrock_docker_agent_example.py
 
-# Run with options
-python examples/bedrock_docker_agent_example.py -v              # Verbose logging
-python examples/bedrock_docker_agent_example.py -i              # Interactive mode
-python examples/bedrock_docker_agent_example.py --session-reuse # Enable container reuse
-python examples/bedrock_docker_agent_example.py --no-viz        # Disable visualization
-python examples/bedrock_docker_agent_example.py --docker        # Use Docker sandbox
+# Run with Local sandbox (no Docker required)
+python examples/local_agent_example.py
 
-# Run basic usage example
-python examples/basic_usage.py
+# Common options (both examples support these)
+-v              # Verbose logging
+-i              # Interactive mode
+--session-reuse # Enable session/state persistence
+--no-viz        # Disable visualization
+--low-level     # Low-level executor API demo
 
 # Run tests
 pytest
@@ -39,7 +39,9 @@ pytest -xvs tests/test_specific.py::test_name  # Single test
 
 ### Core Components (`sandboxed_ptc/`)
 
-- **`SandboxExecutor`** (`sandbox.py`): Manages Docker container lifecycle and IPC communication. Supports session reuse where containers persist between executions for state preservation.
+- **`SandboxExecutor`** (`sandbox.py`): Manages Docker container lifecycle and IPC communication. Supports session reuse where containers persist between executions for state preservation. Use for production with untrusted code.
+
+- **`LocalSandboxExecutor`** (`local_sandbox.py`): Executes code in local Python process without Docker. Same API as `SandboxExecutor` (drop-in replacement). Supports session reuse for state persistence. Use for development/testing or environments without Docker. **Warning: No security isolation.**
 
 - **`ToolRegistry`** (`tool_registry.py`): Tool registration with decorator API. Auto-generates JSON schemas from function signatures. Supports `ToolCallerType.DIRECT` (Claude calls directly), `CODE_EXECUTION` (from sandbox), or `BOTH`.
 
@@ -90,7 +92,7 @@ def query_database(sql: str) -> list[dict]:
     return db.execute(sql)
 ```
 
-### Session Reuse
+### Session Reuse (Docker)
 
 ```python
 config = SandboxConfig(enable_session_reuse=True, session_timeout_seconds=270.0)
@@ -100,22 +102,37 @@ result, session_id = await executor.execute("x = 10", reuse_session=True)
 result, session_id = await executor.execute("print(x + 5)", session_id=session_id)  # x persists
 ```
 
+### Local Sandbox (No Docker)
+
+```python
+from sandboxed_ptc import LocalSandboxExecutor, LocalSandboxConfig
+
+config = LocalSandboxConfig(timeout_seconds=60.0, enable_session_reuse=True)
+executor = LocalSandboxExecutor(registry, config)
+
+# Same API as SandboxExecutor
+result, session_id = await executor.execute("x = 10", reuse_session=True)
+result, session_id = await executor.execute("print(x + 5)", session_id=session_id)  # x persists
+```
+
 ## File Structure
 
 ```
 sandboxed_ptc/     # Core library
   sandbox.py       # Docker execution, IPC, session management
+  local_sandbox.py # Local execution (no Docker), same API
   tool_registry.py # Tool definitions and schema generation
   orchestrator.py  # Claude API coordination
   exceptions.py    # Custom exceptions
 
 examples/
-  bedrock_docker_agent_example.py  # Full agent with Bedrock
+  bedrock_docker_agent_example.py  # Full agent with Docker sandbox
+  local_agent_example.py           # Full agent with local sandbox (no Docker)
   basic_usage.py                   # Minimal example
 
 utils/
   team_expense_api.py   # Mock API for examples
   visualize.py          # Response visualization
 
-Dockerfile         # Sandbox container image
+Dockerfile         # Sandbox container image (for Docker mode)
 ```

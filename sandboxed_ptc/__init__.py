@@ -1,9 +1,11 @@
 # Sandboxed Programmatic Tool Calling
 # 自定义实现类似 Anthropic 的 Programmatic Tool Calling 机制
 # 使用 Docker 容器沙箱提供安全隔离的代码执行环境
+# 也支持本地沙箱执行（无需 Docker，但安全性较低）
 
 from .orchestrator import ProgrammaticToolOrchestrator
 from .sandbox import SandboxExecutor, SandboxConfig, SandboxSession, ExecutionResult
+from .local_sandbox import LocalSandboxExecutor, LocalSandboxConfig, LocalSession
 from .tool_registry import ToolRegistry, Tool, ToolCallerType
 from .exceptions import (
     SandboxError,
@@ -20,6 +22,10 @@ __all__ = [
     "SandboxConfig",
     "SandboxSession",
     "ExecutionResult",
+    # Local Sandbox Executor (no Docker)
+    "LocalSandboxExecutor",
+    "LocalSandboxConfig",
+    "LocalSession",
     # Tool management
     "ToolRegistry",
     "Tool",

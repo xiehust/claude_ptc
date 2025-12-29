@@ -1,6 +1,8 @@
 # Sandboxed Programmatic Tool Calling
 
-A self-hosted implementation of [Anthropic's Programmatic Tool Calling](https://docs.anthropic.com/en/docs/build-with-claude/tool-use/computer-use#programmatic-tool-calling) using Docker containers for secure, isolated code execution.
+A self-hosted implementation of [Anthropic's Programmatic Tool Calling](https://docs.anthropic.com/en/docs/build-with-claude/tool-use/computer-use#programmatic-tool-calling) with two execution modes:
+- **Docker Sandbox** - Secure, isolated code execution for production
+- **Local Sandbox** - Fast, no-Docker execution for development/testing
 
 ## Why Programmatic Tool Calling?
 
@@ -16,8 +18,9 @@ Instead of Claude making separate API calls for each tool, it generates Python c
 ## Features
 
 - **Docker Sandbox Execution**: Secure, isolated code execution with network disabled, read-only filesystem, and resource limits
+- **Local Sandbox Execution**: Fast, no-Docker execution for development/testing (same API as Docker version)
 - **IPC Tool Calling**: Tools called from sandbox via stdin/stdout protocol, executed by host process
-- **Session Reuse**: Container persistence between executions for state preservation (like official PTC)
+- **Session Reuse**: State persistence between executions (both Docker and Local modes)
 - **Flexible Tool Registration**: Decorator-based API with automatic JSON schema generation
 - **Bedrock & Anthropic API Support**: Works with both AWS Bedrock and direct Anthropic API
 
@@ -31,14 +34,14 @@ cd claude_ptc
 # Install dependencies
 pip install -r requirements.txt
 
-# Ensure Docker is running
+# For Docker sandbox (optional - only needed for Docker mode)
 docker info
 ```
 
 ### Requirements
 
 - Python 3.11+
-- Docker
+- Docker (optional - only for Docker sandbox mode)
 - AWS credentials (for Bedrock) or Anthropic API key
 
 ## Quick Start
@@ -77,7 +80,7 @@ result, session_id = await executor.execute(code)
 print(result.stdout)  # Output: Revenue: $50,000
 ```
 
-### With Session Reuse
+### With Session Reuse (Docker)
 
 ```python
 config = SandboxConfig(
@@ -94,26 +97,53 @@ result, session_id = await executor.execute("print(x + 5)", session_id=session_i
 # Output: 15
 ```
 
+### Local Sandbox (No Docker)
+
+For development/testing or environments without Docker:
+
+```python
+from sandboxed_ptc import LocalSandboxExecutor, LocalSandboxConfig, ToolRegistry
+
+# Same registration pattern
+registry = ToolRegistry()
+
+@registry.register(description="Add two numbers")
+def add(a: int, b: int) -> int:
+    return a + b
+
+# Use LocalSandboxConfig instead of SandboxConfig
+config = LocalSandboxConfig(
+    timeout_seconds=60.0,
+    enable_session_reuse=True,
+)
+executor = LocalSandboxExecutor(registry, config)
+
+# Same API as SandboxExecutor
+result, session_id = await executor.execute("x = 10", reuse_session=True)
+result, session_id = await executor.execute("print(x + 5)", session_id=session_id)
+# Output: 15
+```
+
+> **Warning**: Local sandbox provides NO security isolation. Only use with trusted code.
+
 ## Running Examples
 
 ```bash
 # Configure AWS credentials (for Bedrock)
 aws configure
 
-# Basic demo
+# Docker sandbox example (requires Docker)
 python examples/bedrock_docker_agent_example.py
 
-# With Docker sandbox
-python examples/bedrock_docker_agent_example.py --docker
+# Local sandbox example (no Docker required)
+python examples/local_agent_example.py
 
-# Interactive mode with session reuse
-python examples/bedrock_docker_agent_example.py -i --session-reuse
-
-# Verbose logging
-python examples/bedrock_docker_agent_example.py -v
-
-# Disable visualization
-python examples/bedrock_docker_agent_example.py --no-viz
+# Common options (both examples support these)
+python examples/local_agent_example.py -i              # Interactive mode
+python examples/local_agent_example.py --session-reuse # Session reuse
+python examples/local_agent_example.py --low-level     # Low-level API demo
+python examples/local_agent_example.py -v              # Verbose logging
+python examples/local_agent_example.py --no-viz        # Disable visualization
 ```
 
 ## Architecture
@@ -134,27 +164,29 @@ python examples/bedrock_docker_agent_example.py --no-viz
               ┌───────────────┴───────────────┐
               ▼                               ▼
 ┌─────────────────────────┐     ┌─────────────────────────────┐
-│      Claude API         │     │      SandboxExecutor        │
-│  (Bedrock/Anthropic)    │     │  • Docker container mgmt    │
-└─────────────────────────┘     │  • IPC communication        │
-                                │  • Session management       │
-                                └─────────────────────────────┘
-                                              │
-                                              ▼
-                                ┌─────────────────────────────┐
-                                │      Docker Container       │
-                                │  • Executes user code       │
-                                │  • Tool stubs → IPC calls   │
-                                │  • Returns print() output   │
-                                └─────────────────────────────┘
-                                              │
-                                              ▼
-                                ┌─────────────────────────────┐
-                                │       ToolRegistry          │
-                                │  • Tool definitions         │
-                                │  • Schema management        │
-                                │  • Function execution       │
-                                └─────────────────────────────┘
+│      Claude API         │     │     Sandbox Executor        │
+│  (Bedrock/Anthropic)    │     │  (choose one)               │
+└─────────────────────────┘     └─────────────────────────────┘
+                                       │           │
+                          ┌────────────┘           └────────────┐
+                          ▼                                     ▼
+            ┌─────────────────────────┐       ┌─────────────────────────┐
+            │    SandboxExecutor      │       │  LocalSandboxExecutor   │
+            │    (Docker mode)        │       │  (No Docker mode)       │
+            │  • Docker containers    │       │  • Local Python exec    │
+            │  • IPC communication    │       │  • Direct tool calls    │
+            │  • Full isolation       │       │  • No isolation         │
+            │  • Session reuse        │       │  • Session reuse        │
+            └─────────────────────────┘       └─────────────────────────┘
+                          │                                     │
+                          └──────────────┬──────────────────────┘
+                                         ▼
+                          ┌─────────────────────────────┐
+                          │       ToolRegistry          │
+                          │  • Tool definitions         │
+                          │  • Schema management        │
+                          │  • Function execution       │
+                          └─────────────────────────────┘
 ```
 
 ### IPC Protocol
@@ -185,11 +217,13 @@ claude_ptc/
 ├── sandboxed_ptc/           # Core library
 │   ├── __init__.py          # Public API exports
 │   ├── sandbox.py           # Docker execution, IPC, sessions
+│   ├── local_sandbox.py     # Local execution (no Docker)
 │   ├── tool_registry.py     # Tool registration & schemas
 │   ├── orchestrator.py      # Claude API coordination
 │   └── exceptions.py        # Custom exceptions
 ├── examples/
-│   ├── bedrock_docker_agent_example.py  # Full agent demo
+│   ├── bedrock_docker_agent_example.py  # Full agent (Docker)
+│   ├── local_agent_example.py           # Full agent (no Docker)
 │   └── basic_usage.py                   # Minimal example
 ├── utils/
 │   ├── team_expense_api.py  # Mock API for examples
@@ -201,7 +235,7 @@ claude_ptc/
 
 ## Configuration
 
-### SandboxConfig Options
+### SandboxConfig Options (Docker mode)
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -214,17 +248,29 @@ claude_ptc/
 | `enable_session_reuse` | `True` | Enable container reuse |
 | `session_timeout_seconds` | `270.0` | Session expiry (4.5 min) |
 
+### LocalSandboxConfig Options (No Docker mode)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `timeout_seconds` | `60.0` | Execution timeout |
+| `max_output_size` | `100000` | Max captured output chars |
+| `enable_session_reuse` | `True` | Enable state persistence |
+| `session_timeout_seconds` | `270.0` | Session expiry (4.5 min) |
+
 ## Comparison with Official PTC
 
-| Feature | Official Anthropic PTC | This Implementation |
-|---------|----------------------|---------------------|
-| Sandbox environment | Anthropic-hosted | Self-hosted Docker |
-| Control | Limited | Full |
-| Custom dependencies | Not supported | Fully supported |
-| Network access | Restricted | Configurable |
-| Debugging | Limited | Full access |
-| Session persistence | Supported | Supported |
-| Cost | Per-use billing | Local resources |
+| Feature | Official Anthropic PTC | Docker Sandbox | Local Sandbox |
+|---------|----------------------|----------------|---------------|
+| Sandbox environment | Anthropic-hosted | Self-hosted Docker | Local Python |
+| Security isolation | Full | Full | None |
+| Control | Limited | Full | Full |
+| Custom dependencies | Not supported | Fully supported | Fully supported |
+| Network access | Restricted | Configurable | Not restricted |
+| Startup time | Fast | ~1-2s | Instant |
+| Debugging | Limited | Full access | Full access |
+| Session persistence | Supported | Supported | Supported |
+| Cost | Per-use billing | Local resources | Local resources |
+| Docker required | N/A | Yes | No |
 
 ## License
 
