@@ -187,34 +187,35 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph Traditional["传统 Tool Use"]
-        T1[用户请求] --> T2[Claude 调用 tool_1]
-        T2 --> T3[返回结果 → 进入上下文]
-        T3 --> T4[Claude 调用 tool_2]
-        T4 --> T5[返回结果 → 进入上下文]
-        T5 --> T6[Claude 调用 tool_3]
-        T6 --> T7[返回结果 → 进入上下文]
-        T7 --> T8[Claude 生成回复]
+    subgraph "传统调用"
+        A1[发送请求] --> B1[工具调用1]
+        B1 --> C1[模型推理]
+        C1 --> D1[工具调用2]
+        D1 --> E1[模型推理]
+        E1 --> F1[工具调用3]
+        F1 --> G1[模型推理]
+        G1 --> H1[最终响应]
+        
+        style C1 fill:#ffcccc
+        style E1 fill:#ffcccc
+        style G1 fill:#ffcccc
     end
-
-    subgraph Programmatic["Programmatic Tool Calling"]
-        P1[用户请求] --> P2[Claude 生成代码]
-        P2 --> P3[execute_code]
-
-        subgraph CodeExec["代码执行 (不进入上下文)"]
-            P3 --> P4[await tool_1]
-            P4 --> P5[await tool_2]
-            P5 --> P6[await tool_3]
-            P6 --> P7["print(聚合结果)"]
-        end
-
-        P7 --> P8[只有 print 输出返回]
-        P8 --> P9[Claude 生成回复]
+    
+    subgraph "程序化调用"
+        A2[发送请求] --> B2[生成代码]
+        B2 --> C2[容器循环执行<br/>工具1+2+3]
+        C2 --> D2[返回摘要]
+        D2 --> E2[最终响应]
+        
+        style B2 fill:#ccffcc
+        style C2 fill:#e6f7ff
     end
-
-    style Traditional fill:#ffebee
-    style Programmatic fill:#e8f5e9
-    style CodeExec fill:#fff8e1
+    
+    Note1[❌ 3次推理<br/>大量tokens]
+    Note2[✅ 1次推理<br/>节省tokens]
+    
+    H1 -.-> Note1
+    E2 -.-> Note2
 ```
 
 ## 执行流程

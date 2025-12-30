@@ -272,6 +272,91 @@ claude_ptc/
 | Cost | Per-use billing | Local resources | Local resources |
 | Docker required | N/A | Yes | No |
 
+
+## Official PTC flow
+### Standard
+```mermaid
+---
+config:
+  theme: redux-color
+---
+
+sequenceDiagram
+    participant Client
+    participant Bedrock_Proxy
+    participant Container as 代码执行容器
+    participant User_Tools as 用户工具
+
+    rect rgb(240, 255, 240)
+        Note over Client,User_Tools: 场景：查询3个区域的销售数据并分析
+    end
+
+    Client->>Bedrock_Proxy: 1️⃣ 发送请求 + allowed_callers配置
+    
+    activate Bedrock_Proxy
+    Bedrock_Proxy->>Bedrock_Proxy: 分析任务，生成Python代码
+    Bedrock_Proxy->>Container: 2️⃣ 创建容器，执行代码
+    deactivate Bedrock_Proxy
+    
+    activate Container
+    Note over Container: regions = ["West", "East", "Central"]<br/>for region in regions:<br/>    data = await query_database(region)
+    deactivate Container
+    
+    rect rgb(255, 250, 230)
+        Note over Client,User_Tools: 🔄循环：容器内多次工具调用
+        
+        loop 每个区域查询
+            Container->>Bedrock_Proxy: 3️⃣ 暂停容器，请求工具
+            Bedrock_Proxy->>Client: 4️⃣ 返回 tool_use
+            Client->>User_Tools: 5️⃣ 执行工具
+            User_Tools-->>Client: 返回数据
+            Client->>Bedrock_Proxy: 6️⃣ 发送 tool_result
+            Bedrock_Proxy->>Container: 7️⃣ 注入结果，继续执行
+            Note over Container: 在代码中处理数据<br/>（过滤/聚合/计算）<br/>❗数据不进入模型上下文
+        end
+    end
+    
+    activate Container
+    Note over Container: 代码执行完成<br/>top = max(results)<br/>print(f"最高: {top}")
+    Container->>Bedrock_Proxy: 8️⃣ 返回执行结果 (stdout)
+    deactivate Container
+    
+    activate Bedrock_Proxy
+    Bedrock_Proxy->>Bedrock_Proxy: 基于代码输出生成响应
+    Bedrock_Proxy->>Client: 9️⃣ 返回最终响应
+    deactivate Bedrock_Proxy
+
+    rect rgb(200, 255, 200)
+        Note over Client,User_Tools: ✅ 1次模型推理 | ✅ 只有摘要进入上下文 | ✅ 节省85% tokens
+    end
+```
+### Concised
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Claude_API
+    participant Container as 代码容器
+    participant Tools as 工具
+
+    Client->>Claude_API: ① 请求 + allowed_callers
+    Claude_API->>Container: ② 生成并执行Python代码
+    
+    rect rgb(255, 250, 200)
+        loop 代码中的每个工具调用
+            Container->>Client: ③ tool_use (容器暂停)
+            Client->>Tools: 执行工具
+            Tools-->>Client: 返回结果
+            Client->>Container: ④ tool_result (容器继续)
+        end
+    end
+    
+    Container->>Claude_API: ⑤ 代码输出 (摘要)
+    Claude_API->>Client: 最终响应
+
+    Note over Client,Tools: 🔑 关键：所有数据在容器内处理，只返回摘要
+```
+
+
 ## License
 
 MIT
